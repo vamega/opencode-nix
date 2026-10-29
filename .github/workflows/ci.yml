@@ -5,12 +5,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -19,11 +21,15 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
 
-      - name: Build
-        run: nix build
-
-      - name: Verify version
-        run: ./result/bin/opencode --version
-
-      - name: Check flake
+      - name: Check flake outputs
         run: nix flake check
+
+      - name: Build CLI and desktop packages
+        run: nix build .#opencode .#opencode-desktop --no-link
+
+      - name: Verify CLI version
+        run: |
+          output=$(nix run .#opencode -- --version)
+          printf '%s\n' "$output"
+          expected=$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";.*/\1/p' package.nix | head -1)
+          echo "$output" | grep -F "$expected"

@@ -33,7 +33,19 @@ echo "Current: $current_version -> Target: $target_version"
 [[ "$check_only" == "true" ]] && exit 0
 
 fetch_hash() {
-    nix store prefetch-file --json "$1" 2>/dev/null | jq -r '.hash'
+    nix store prefetch-file --json "$1" | jq -er '.hash'
+}
+
+release_json=$(gh api "repos/anomalyco/opencode/releases/tags/v${target_version}")
+
+asset_hash() {
+    local asset="$1" digest
+    digest=$(jq -er --arg name "$asset" '.assets[] | select(.name == $name) | .digest // empty' <<<"$release_json" 2>/dev/null || true)
+    if [[ "$digest" == sha256:* ]]; then
+        nix hash convert --hash-algo sha256 --to sri "${digest#sha256:}"
+    else
+        fetch_hash "https://github.com/anomalyco/opencode/releases/download/v${target_version}/${asset}"
+    fi
 }
 
 update_hash() {
@@ -46,15 +58,21 @@ echo "Fetching hashes..."
 # CLI package
 for platform in linux-x64 linux-arm64 darwin-x64 darwin-arm64; do
     ext=$([[ "$platform" == darwin* ]] && echo "zip" || echo "tar.gz")
-    hash=$(fetch_hash "https://github.com/anomalyco/opencode/releases/download/v${target_version}/opencode-${platform}.${ext}")
+    hash=$(asset_hash "opencode-${platform}.${ext}")
     echo "  $platform: $hash"
     update_hash "$REPO_DIR/package.nix" "$platform" "$hash"
 done
 
-# Desktop package
-declare -A desktop_ext=(["linux-amd64"]="deb" ["linux-arm64"]="deb" ["darwin-x64"]="app.tar.gz" ["darwin-aarch64"]="app.tar.gz")
+# Desktop package. The upstream macOS asset names use mac-x64/mac-arm64,
+# while Linux uses linux-amd64/linux-arm64.
+declare -A desktop_ext=(
+    ["linux-amd64"]="deb"
+    ["linux-arm64"]="deb"
+    ["mac-x64"]="app.tar.gz"
+    ["mac-arm64"]="app.tar.gz"
+)
 for platform in "${!desktop_ext[@]}"; do
-    hash=$(fetch_hash "https://github.com/anomalyco/opencode/releases/download/v${target_version}/opencode-desktop-${platform}.${desktop_ext[$platform]}")
+    hash=$(asset_hash "opencode-desktop-${platform}.${desktop_ext[$platform]}")
     echo "  desktop $platform: $hash"
     update_hash "$REPO_DIR/package-desktop.nix" "$platform" "$hash"
 done
@@ -62,7 +80,4 @@ done
 # Update versions
 sed -i "s/version = \"${current_version}\"/version = \"${target_version}\"/" "$REPO_DIR/package.nix" "$REPO_DIR/package-desktop.nix"
 
-echo "Updating flake.lock..."
-nix flake update --flake "$REPO_DIR" 2>/dev/null || true
-
-echo "Done! Test with: nix build && ./result/bin/opencode --version"
+echo "Done! Test with: nix build .#opencode .#opencode-desktop"

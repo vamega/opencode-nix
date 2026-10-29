@@ -1,58 +1,25 @@
-name: Auto-update OpenCode version
+name: Update OpenCode package
 
 on:
   schedule:
-    # Check for updates every hour
-    - cron: "0 * * * *"
+    # Check upstream once per day.
+    - cron: "17 6 * * *"
   workflow_dispatch:
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
+
+concurrency:
+  group: opencode-version-update
+  cancel-in-progress: false
 
 jobs:
-  check-update:
+  prepare:
     runs-on: ubuntu-latest
     outputs:
-      has_update: ${{ steps.check.outputs.has_update }}
-      new_version: ${{ steps.check.outputs.new_version }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Get current version
-        id: current
-        run: |
-          version=$(grep 'version = "' package.nix | head -1 | sed 's/.*version = "\(.*\)";/\1/')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Get latest GitHub release
-        id: latest
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version=$(gh api repos/anomalyco/opencode/releases/latest --jq '.tag_name // empty' | sed 's/^v//')
-          if [ -z "$version" ]; then
-            echo "::error::Failed to fetch latest version from GitHub"
-            exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Compare versions
-        id: check
-        run: |
-          if [ "${{ steps.current.outputs.version }}" != "${{ steps.latest.outputs.version }}" ]; then
-            echo "has_update=true" >> "$GITHUB_OUTPUT"
-            echo "new_version=${{ steps.latest.outputs.version }}" >> "$GITHUB_OUTPUT"
-            echo "Update available: ${{ steps.current.outputs.version }} -> ${{ steps.latest.outputs.version }}"
-          else
-            echo "has_update=false" >> "$GITHUB_OUTPUT"
-            echo "Already up to date: ${{ steps.current.outputs.version }}"
-          fi
-
-  update:
-    needs: check-update
-    if: needs.check-update.outputs.has_update == 'true'
-    runs-on: ubuntu-latest
+      version: ${{ steps.release.outputs.version }}
+      has_update: ${{ steps.release.outputs.has_update }}
+      needs_publish: ${{ steps.release.outputs.needs_publish }}
     steps:
       - uses: actions/checkout@v6
 
@@ -60,30 +27,116 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixpkgs-unstable
 
-      - name: Update version
-        run: ./scripts/update-version.sh --version "${{ needs.check-update.outputs.new_version }}"
-
-      - name: Build and test
-        run: |
-          nix build
-          ./result/bin/opencode --version
-
-      - name: Create pull request
-        id: create-pull-request
-        uses: peter-evans/create-pull-request@v8
-        with:
-          commit-message: "chore(deps): bump opencode to v${{ needs.check-update.outputs.new_version }}"
-          title: "chore(deps): bump opencode to v${{ needs.check-update.outputs.new_version }}"
-          body: |
-            Automated update of OpenCode to v${{ needs.check-update.outputs.new_version }}.
-
-            Release: https://github.com/anomalyco/opencode/releases/tag/v${{ needs.check-update.outputs.new_version }}
-          branch: chore/bump-opencode-v${{ needs.check-update.outputs.new_version }}
-          delete-branch: true
-          labels: automated
-
-      - name: Enable auto-merge
-        if: steps.create-pull-request.outputs.pull-request-number
-        run: gh pr merge --auto --squash "${{ steps.create-pull-request.outputs.pull-request-number }}"
+      - name: Check upstream release
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          current=$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";.*/\1/p' package.nix | head -1)
+          version=$(gh api repos/anomalyco/opencode/releases/latest --jq '.tag_name | ltrimstr("v")')
+          if [ -z "$version" ]; then
+            echo "::error::Could not read the latest OpenCode release"
+            exit 1
+          fi
+
+          has_update=false
+          if [ "$current" != "$version" ]; then
+            has_update=true
+            ./scripts/update-version.sh --version "$version"
+          fi
+
+          needs_publish=$has_update
+          if ! gh release view "v$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            needs_publish=true
+          fi
+
+          {
+            echo "version=$version"
+            echo "has_update=$has_update"
+            echo "needs_publish=$needs_publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "Current: $current; upstream: $version; update: $has_update; publish: $needs_publish"
+
+      - name: Upload updated package definitions
+        if: steps.release.outputs.has_update == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: updated-package-definitions
+          path: |
+            package.nix
+            package-desktop.nix
+          if-no-files-found: error
+
+  validate:
+    needs: prepare
+    if: needs.prepare.outputs.needs_publish == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixpkgs-unstable
+
+      - name: Download updated package definitions
+        if: needs.prepare.outputs.has_update == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: updated-package-definitions
+          path: .
+
+      - name: Check flake outputs
+        run: nix flake check
+
+      - name: Build CLI and desktop packages
+        run: nix build .#opencode .#opencode-desktop --no-link
+
+      - name: Verify CLI version
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          output=$(nix run .#opencode -- --version)
+          printf '%s\n' "$output"
+          echo "$output" | grep -F "$EXPECTED_VERSION"
+
+  publish:
+    needs: [prepare, validate]
+    if: needs.prepare.outputs.needs_publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download updated package definitions
+        if: needs.prepare.outputs.has_update == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: updated-package-definitions
+          path: .
+
+      - name: Publish package version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git diff --quiet -- package.nix package-desktop.nix; then
+            git add package.nix package-desktop.nix
+            git commit -m "Update OpenCode to v$VERSION"
+            git push origin HEAD:main
+          fi
+
+          if ! gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "v$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target main \
+              --title "OpenCode v$VERSION" \
+              --notes "Nix package update for [OpenCode v$VERSION](https://github.com/anomalyco/opencode/releases/tag/v$VERSION). The package downloads the upstream release binaries at build time."
+          fi

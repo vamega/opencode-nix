@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.release.outputs.version }}
       has_update: ${{ steps.release.outputs.has_update }}
@@ -106,7 +106,7 @@ jobs:
   publish:
     needs: [prepare, validate]
     if: needs.prepare.outputs.needs_publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:

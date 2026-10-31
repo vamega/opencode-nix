@@ -5,19 +5,22 @@ set -euo pipefail
 # Usage:
 #   ./scripts/update-version.sh              # Update to latest
 #   ./scripts/update-version.sh --check      # Check if update available
+#   ./scripts/update-version.sh --latest      # Print latest stable version
 #   ./scripts/update-version.sh --version X  # Update to specific version
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 check_only=false
+print_latest=false
 target_version=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --check) check_only=true; shift ;;
+        --latest) print_latest=true; shift ;;
         --version) target_version="$2"; shift 2 ;;
         --help|-h)
-            echo "Usage: $0 [--check] [--version VERSION]"
+            echo "Usage: $0 [--check] [--latest] [--version VERSION]"
             exit 0
             ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -25,7 +28,29 @@ while [[ $# -gt 0 ]]; do
 done
 
 current_version=$(grep -oP 'version = "\K[^"]+' "$REPO_DIR/package.nix" | head -1)
-[[ -z "$target_version" ]] && target_version=$(gh api repos/anomalyco/opencode/releases/latest --jq '.tag_name | ltrimstr("v")')
+latest_version() {
+    gh api 'repos/anomalyco/opencode/releases?per_page=100' --jq '
+      [ .[]
+        | select(.draft == false and .prerelease == false)
+        | .tag_name
+        | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))
+        | ltrimstr("v")
+        | split(".")
+        | map(tonumber)
+      ]
+      | sort
+      | last
+      | map(tostring)
+      | join(".")
+    '
+}
+
+[[ -z "$target_version" ]] && target_version=$(latest_version)
+if [[ -z "$target_version" || "$target_version" == "null" ]]; then
+    echo "Could not determine the latest stable OpenCode release" >&2
+    exit 1
+fi
+[[ "$print_latest" == "true" ]] && { echo "$target_version"; exit 0; }
 
 echo "Current: $current_version -> Target: $target_version"
 

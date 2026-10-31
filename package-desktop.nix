@@ -19,7 +19,7 @@
   glib ? null,
   binName ? "opencode-desktop",
 }: let
-  version = "1.19.5";
+  version = "2.2.5";
 
   platformMap = {
     "x86_64-linux" = {
@@ -44,10 +44,10 @@
     (throw "Unsupported platform: ${stdenv.hostPlatform.system}");
 
   hashes = {
-    "linux-amd64" = "sha256-3jgqrLX0Kjuh+o1CprYwMZrq04ubp8knAL7l2jl3uzI=";
-    "linux-arm64" = "sha256-aq78Psr46x+nigtIRXtG5RTpHzzUyxIfdcZWOm5CJKc=";
-    "mac-x64" = "sha256-mR0YnlDAWP+qeQwkah0skIphRvMkFfF9K/7aQiT64pI=";
-    "mac-arm64" = "sha256-gCEn4JpR0jnTW3OwIBD5pzbuoU0EkS8spEUz3foAW2c=";
+    "linux-amd64" = "sha256-yCfnFCIN50TIKf3qVVQO2BSxNyBh56kF/eCXj5+Bneg=";
+    "linux-arm64" = "sha256-dRf375wKnojPAGCRHeIfHD37/XlvU1ymL+xslo0Ox+M=";
+    "mac-x64" = "sha256-B8XnUZywPg0AfmtRrvCyMleOilycDCeCHO7IlD/H7L8=";
+    "mac-arm64" = "sha256-xvrpRFDOwU4IAeb8hVMCTsN+URwkYZwvo+C2wIbMeI0=";
   };
 
   src = fetchurl {
@@ -108,7 +108,10 @@ in
         mkdir -p "$out/lib/opencode-desktop"
         cp -R opt/OpenCode "$out/lib/opencode-desktop/"
         cp -R usr/share "$out/share"
-        desktopBinary="$out/lib/opencode-desktop/OpenCode/ai.opencode.desktop"
+        desktopBinary="$out/lib/opencode-desktop/OpenCode/ai.opencode"
+        if [ ! -x "$desktopBinary" ]; then
+          desktopBinary="$out/lib/opencode-desktop/OpenCode/ai.opencode.desktop"
+        fi
       else
         tar -xzf "$src"
 

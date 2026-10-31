@@ -33,7 +33,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           current=$(sed -n 's/^[[:space:]]*version = "\([^"]*\)";.*/\1/p' package.nix | head -1)
-          version=$(gh api repos/anomalyco/opencode/releases/latest --jq '.tag_name | ltrimstr("v")')
+          version=$(./scripts/update-version.sh --latest)
           if [ -z "$version" ]; then
             echo "::error::Could not read the latest OpenCode release"
             exit 1

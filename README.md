@@ -132,7 +132,7 @@ Desktop package (`opencode-desktop`):
 
 A GitHub Actions workflow checks once per day:
 
-1. Queries the [anomalyco/opencode](https://github.com/anomalyco/opencode) releases API for the latest version
+1. Queries the [anomalyco/opencode](https://github.com/anomalyco/opencode) releases API and selects the highest stable semantic version. Upstream keeps OpenCode 1.x marked as GitHub's "latest" release for compatibility, so the updater does not use the `/releases/latest` endpoint.
 2. Compares against the version in `package.nix`
 3. If newer, refreshes the pinned hashes for the CLI and desktop assets on all four supported systems
 4. Builds and validates the CLI and desktop packages on Linux and macOS

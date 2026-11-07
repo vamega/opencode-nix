@@ -19,7 +19,7 @@
   glib ? null,
   binName ? "opencode-desktop",
 }: let
-  version = "2.2.5";
+  version = "2.2.6";
 
   platformMap = {
     "x86_64-linux" = {
@@ -44,10 +44,10 @@
     (throw "Unsupported platform: ${stdenv.hostPlatform.system}");
 
   hashes = {
-    "linux-amd64" = "sha256-yCfnFCIN50TIKf3qVVQO2BSxNyBh56kF/eCXj5+Bneg=";
-    "linux-arm64" = "sha256-dRf375wKnojPAGCRHeIfHD37/XlvU1ymL+xslo0Ox+M=";
-    "mac-x64" = "sha256-B8XnUZywPg0AfmtRrvCyMleOilycDCeCHO7IlD/H7L8=";
-    "mac-arm64" = "sha256-xvrpRFDOwU4IAeb8hVMCTsN+URwkYZwvo+C2wIbMeI0=";
+    "linux-amd64" = "sha256-h/ZlVfOj/sOQHvfhrIb14t61W5AATPQjludUfGsZVFk=";
+    "linux-arm64" = "sha256-9/YSlP8xHp8O4KKDqwBl80AI+1ciMASANFzaNHZadXE=";
+    "mac-x64" = "sha256-mZK5tfFUFkk1C+ErFdhp/m+fnEPYEPABeuy99JQ4vlk=";
+    "mac-arm64" = "sha256-jpfhMYFKht8yTlzfARMPnuvNqPp+8Sf0AOAFtqJLXyY=";
   };
 
   src = fetchurl {
